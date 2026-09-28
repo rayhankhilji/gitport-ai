@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gitport"
+version = "0.1.0"
+description = "AI-native pre-merge gatekeeper: catches breaking changes, migration hazards and security flaws in git diffs before they hit production."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "gitport contributors" }]
+keywords = ["cohere", "code-review", "ci", "git-hooks", "mcp", "ai-agent"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = [
+    "cohere>=5.16.0",
+    "typer>=0.12.0",
+    "rich>=13.7.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.3.0",
+    "httpx>=0.27.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "mcp>=1.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.6.0",
+]
+
+[project.scripts]
+gitport = "gitport.cli:app"
+gitport-mcp = "gitport.mcp_server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gitport"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
