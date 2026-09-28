@@ -106,8 +106,8 @@ def index(
     console.print(f"[green]indexed {n} chunks[/green] from {rules_dir} → {index_path}")
 
 
-@app.command()
-def hook(
+@app.command("install-hook")
+def install_hook(
     hook_type: str = typer.Argument("pre-push", help="Hook to install (pre-push or pre-receive)"),
     repo: Path = typer.Option(Path("."), "--repo", help="Repository root"),
 ) -> None:

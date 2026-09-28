@@ -10,14 +10,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
+try:  # mcp >= 2.0 renamed FastMCP to MCPServer
+    from mcp.server.mcpserver import MCPServer
+except ImportError:  # mcp 1.x
+    from mcp.server.fastmcp import FastMCP as MCPServer
 
 from .analysis import analyze_python_source, lint_sql_migration
 from .config import get_settings
 from .engine import EngineError, error_verdict, run_check
 from .models import CheckReport
 
-mcp = FastMCP(
+mcp = MCPServer(
     "gitport",
     instructions=(
         "gitport is a pre-merge gatekeeper. Call gitport_check (git refs) or "
