@@ -1,0 +1,33 @@
+# .github/workflows/gitport.yml — gate every PR before merge
+name: gitport
+
+on:
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install gitport
+      # or from source: pip install "git+https://github.com/you/gitport-ai"
+
+      - name: Index internal rules
+        run: gitport index --rules-dir docs/rules
+        env:
+          COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+
+      - name: Gate the PR diff
+        env:
+          COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+        run: gitport check --base origin/${{ github.base_ref }} --head HEAD --strict

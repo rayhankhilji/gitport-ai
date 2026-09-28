@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "gitport": {
+      "command": "gitport-mcp",
+      "env": {
+        "COHERE_API_KEY": "your-key-here"
+      }
+    }
+  }
+}

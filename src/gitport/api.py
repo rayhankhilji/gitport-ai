@@ -13,7 +13,6 @@ Bearer <token>``. Without it the service is meant for localhost/CI only.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
@@ -26,19 +25,19 @@ from .models import CheckReport
 
 
 class CheckRequest(BaseModel):
-    diff: Optional[str] = None          # raw unified diff, or…
-    repo_path: Optional[str] = None     # …a git range inside a repo
+    diff: str | None = None          # raw unified diff, or…
+    repo_path: str | None = None     # …a git range inside a repo
     base_ref: str = "HEAD~1"
     head_ref: str = "HEAD"
     staged: bool = False
 
 
 class IndexRequest(BaseModel):
-    rules_dir: Optional[str] = None
-    index_path: Optional[str] = None
+    rules_dir: str | None = None
+    index_path: str | None = None
 
 
-def create_app(default_repo: str | Path = ".", settings=None) -> FastAPI:
+def create_app(default_repo: str | Path = ".", settings=None, client=None) -> FastAPI:
     cfg = settings or get_settings()
     app = FastAPI(title="gitport", version=__version__,
                   description="AI-native pre-merge gatekeeper.")
@@ -64,7 +63,7 @@ def create_app(default_repo: str | Path = ".", settings=None) -> FastAPI:
         else:
             kwargs = {"diff_text": req.diff}
         try:
-            return run_check(cfg, **kwargs)
+            return run_check(cfg, client=client, **kwargs)
         except EngineError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:

@@ -11,8 +11,8 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -40,7 +40,7 @@ class VectorStore:
     def close(self) -> None:
         self._conn.close()
 
-    def __enter__(self) -> "VectorStore":
+    def __enter__(self) -> VectorStore:
         return self
 
     def __exit__(self, *exc) -> None:
@@ -87,7 +87,7 @@ class VectorStore:
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(x * x for x in b))
     if na == 0 or nb == 0:

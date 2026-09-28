@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import textwrap
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -45,11 +46,27 @@ def _dotted(node: ast.AST) -> str:
 
 
 def analyze_python_source(source: str, filename: str = "<diff>") -> dict:
-    """Parse Python source and report structure + dangerous call sites."""
-    try:
-        tree = ast.parse(source, filename=filename)
-    except SyntaxError as e:
-        return {"ok": False, "file": filename, "syntax_error": f"{e.msg} (line {e.lineno})"}
+    """Parse Python source and report structure + dangerous call sites.
+
+    Diff-only input is fragmentary (added lines without their enclosing
+    block), so we try progressively more wrapping before giving up.
+    """
+    attempts = [source, textwrap.dedent(source)]
+    dedented = textwrap.dedent(source)
+    attempts.append("def _fragment():\n" + textwrap.indent(dedented, "    "))
+
+    tree, partial = None, False
+    last_err = None
+    for i, candidate in enumerate(attempts):
+        try:
+            tree = ast.parse(candidate, filename=filename)
+            partial = i > 0
+            break
+        except SyntaxError as e:
+            last_err = e
+    if tree is None:
+        return {"ok": False, "file": filename,
+                "syntax_error": f"{last_err.msg} (line {last_err.lineno})"}
 
     functions, classes, imports, dangerous = [], [], [], []
     for node in ast.walk(tree):
@@ -90,7 +107,8 @@ def analyze_python_source(source: str, filename: str = "<diff>") -> dict:
     return {
         "ok": True,
         "file": filename,
-        "functions": functions,
+        "partial": partial,
+        "functions": [f for f in functions if f["name"] != "_fragment"],
         "classes": classes,
         "imports": sorted(set(filter(None, imports))),
         "dangerous_calls": dangerous,
@@ -232,7 +250,7 @@ def scan_dependencies(manifest_text: str, ecosystem: str = "PyPI",
                 "error": f"OSV query failed: {e}", "vulnerabilities": []}
 
     vulns = []
-    for (name, ver), result in zip(deps, results):
+    for (name, ver), result in zip(deps, results, strict=True):
         for v in (result or {}).get("vulns") or []:
             vulns.append({
                 "package": name,

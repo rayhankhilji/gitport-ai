@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -15,7 +13,7 @@ from rich.table import Table
 from . import __version__
 from .config import get_settings
 from .engine import EngineError, error_verdict, run_check
-from .models import CheckReport, Verdict
+from .models import CheckReport
 
 app = typer.Typer(
     name="gitport",
@@ -34,15 +32,16 @@ _STATUS_STYLE = {"PASSED": "green", "WARNING": "yellow", "FAILED": "red"}
 
 @app.command()
 def check(
-    base: Optional[str] = typer.Option(None, "--base", help="Base git ref (e.g. main, HEAD~1)"),
-    head: Optional[str] = typer.Option(None, "--head", help="Head git ref (default: working tree/HEAD)"),
+    base: str | None = typer.Option(None, "--base", help="Base git ref (e.g. main, HEAD~1)"),
+    head: str | None = typer.Option(None, "--head", help="Head git ref (default: working tree/HEAD)"),
     staged: bool = typer.Option(False, "--staged", help="Check staged changes"),
-    diff_file: Optional[Path] = typer.Option(None, "--diff-file", "-f",
+    diff_file: Path | None = typer.Option(None, "--diff-file", "-f",
                                              help="Read a unified diff from a file ('-' for stdin)"),
     repo: Path = typer.Option(Path("."), "--repo", help="Repository root"),
     strict: bool = typer.Option(False, "--strict", help="Treat WARNING as a failure"),
-    fail_open: Optional[bool] = typer.Option(None, "--fail-open/--fail-closed",
-                                             help="On engine error, warn instead of failing (default: fail closed)"),
+    fail_open: bool | None = typer.Option(
+        None, "--fail-open/--fail-closed",
+        help="On engine error, warn instead of failing (default: fail closed)"),
     json_out: bool = typer.Option(False, "--json", help="Emit the full report as JSON"),
     quiet: bool = typer.Option(False, "-q", "--quiet", help="Only print the verdict line"),
 ) -> None:
@@ -80,9 +79,9 @@ def check(
 
 @app.command()
 def index(
-    rules_dir: Optional[Path] = typer.Option(None, "--rules-dir", "-d",
+    rules_dir: Path | None = typer.Option(None, "--rules-dir", "-d",
                                            help="Directory of internal docs to index"),
-    index_path: Optional[Path] = typer.Option(None, "--index", "-o",
+    index_path: Path | None = typer.Option(None, "--index", "-o",
                                               help="Where to write the vector index"),
     repo: Path = typer.Option(Path("."), "--repo", help="Repository root"),
 ) -> None:
@@ -102,7 +101,7 @@ def index(
         n = build_index(make_client(cfg), cfg, rules_dir, index_path)
     except (EngineError, IndexError_) as e:
         err_console.print(f"[red]index failed:[/red] {e}")
-        raise typer.Exit(EXIT_ERROR)
+        raise typer.Exit(EXIT_ERROR) from e
 
     console.print(f"[green]indexed {n} chunks[/green] from {rules_dir} → {index_path}")
 
@@ -137,6 +136,7 @@ def serve(
 ) -> None:
     """Run the gitport REST API (FastAPI + uvicorn)."""
     import uvicorn
+
     from .api import create_app
 
     uvicorn.run(create_app(default_repo=repo), host=host, port=port)

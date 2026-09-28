@@ -106,7 +106,8 @@ def build_index(client, cfg: Settings, rules_dir: str | Path | None = None,
     with VectorStore(store_path) as store:
         store.reset(cfg.embed_model)
         return store.add_many(
-            (src, head, content, emb) for (src, head, content), emb in zip(chunks, embeddings)
+            (src, head, content, emb)
+            for (src, head, content), emb in zip(chunks, embeddings, strict=True)
         )
 
 
