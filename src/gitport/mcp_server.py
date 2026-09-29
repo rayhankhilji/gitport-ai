@@ -17,8 +17,10 @@ except ImportError:  # mcp 1.x
 
 from .analysis import analyze_python_source, lint_sql_migration
 from .config import get_settings
+from .detectors.secrets import scan_text_for_secrets
 from .engine import EngineError, error_verdict, run_check
 from .models import CheckReport
+from .policy import find_policy_path, load_policy
 
 mcp = MCPServer(
     "gitport",
@@ -41,10 +43,13 @@ def _report_json(report: CheckReport) -> str:
 
 @mcp.tool()
 def gitport_check(repo_path: str, base_ref: str = "HEAD~1", head_ref: str = "HEAD") -> str:
-    """Gate a git range in a local repository. Returns the verdict JSON."""
+    """Gate a git range in a local repository. Applies .gitport/policy.toml
+    from the repo when present. Returns the verdict JSON."""
     cfg = _settings()
+    pol = load_policy(p) if (p := find_policy_path(cfg, repo_path)) else None
     try:
-        report = run_check(cfg, repo=repo_path, base=base_ref, head=head_ref)
+        report = run_check(cfg, repo=repo_path, base=base_ref,
+                           head=head_ref, policy=pol)
     except EngineError as e:
         report = CheckReport(verdict=error_verdict(str(e), cfg.fail_open))
     except Exception as e:
@@ -75,6 +80,13 @@ def gitport_lint_migration(sql: str) -> str:
 def gitport_analyze_python(source: str, filename: str = "snippet.py") -> str:
     """AST-parse Python source for dangerous calls. No API key needed."""
     return json.dumps(analyze_python_source(source, filename))
+
+
+@mcp.tool()
+def gitport_scan_secrets(text: str, filename: str = "snippet") -> str:
+    """Scan text for leaked credentials (keys, tokens, JWTs). No API key
+    needed; matches are masked in the output."""
+    return json.dumps(scan_text_for_secrets(text, filename))
 
 
 @mcp.tool()

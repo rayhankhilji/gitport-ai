@@ -1,0 +1,36 @@
+# gitport API — self-hosted gatekeeper service.
+#
+#   cp .env.example .env        # set COHERE_API_KEY (and GITPORT_API_TOKEN)
+#   docker compose up --build   # serves on :8400
+#   curl localhost:8400/healthz
+#
+# State: the named volume `gitport-data` persists the rules vector index and
+# the reports database across rebuilds. Mount your rules corpus read-only.
+
+services:
+  api:
+    build: .
+    ports:
+      - "8400:8400"
+    env_file:
+      - .env                      # COHERE_API_KEY, GITPORT_API_TOKEN, models
+    environment:
+      # Persistent state lives on the named volume, not the container FS.
+      GITPORT_INDEX_PATH: /data/index.sqlite3
+      GITPORT_REPORTS_DB: /data/reports.sqlite3
+      GITPORT_RULES_DIR: /rules
+    volumes:
+      - ./docs/rules:/rules:ro    # your internal engineering rules corpus
+      - gitport-data:/data
+    restart: unless-stopped
+    healthcheck:
+      # No curl/wget in python:3.12-slim — use stdlib urllib.
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8400/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  gitport-data:

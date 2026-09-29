@@ -1,0 +1,36 @@
+# Version control
+.git/
+.gitignore
+
+# Python build/venv artifacts
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Tests and docs stay out of the runtime image
+tests/
+docs/
+examples/
+*.md
+
+# Local secrets and runtime state — never bake into an image
+.env
+.env.*
+!.env.example
+.gitport/
+*.sqlite3
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+
+# Container self-references
+Dockerfile
+.dockerignore
+docker-compose.yml

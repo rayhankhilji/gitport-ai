@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from enum import StrEnum
 from pathlib import Path
 
 import typer
@@ -13,7 +14,10 @@ from rich.table import Table
 from . import __version__
 from .config import get_settings
 from .engine import EngineError, error_verdict, run_check
+from .formatters import render
+from .github import post_pr_comment, set_commit_status
 from .models import CheckReport
+from .policy import PolicyError, find_policy_path, load_policy, should_fail
 
 app = typer.Typer(
     name="gitport",
@@ -30,6 +34,14 @@ EXIT_ERROR = 3
 _STATUS_STYLE = {"PASSED": "green", "WARNING": "yellow", "FAILED": "red"}
 
 
+class _Format(StrEnum):
+    rich = "rich"
+    json = "json"
+    markdown = "markdown"
+    sarif = "sarif"
+    junit = "junit"
+
+
 @app.command()
 def check(
     base: str | None = typer.Option(None, "--base", help="Base git ref (e.g. main, HEAD~1)"),
@@ -42,6 +54,18 @@ def check(
     fail_open: bool | None = typer.Option(
         None, "--fail-open/--fail-closed",
         help="On engine error, warn instead of failing (default: fail closed)"),
+    fmt: _Format = typer.Option(
+        _Format.rich, "--format", help="Output format (json/markdown/sarif/junit for CI)"),
+    policy: Path | None = typer.Option(
+        None, "--policy", help="Policy TOML file (default: .gitport/policy.toml when present)"),
+    post_comment: bool = typer.Option(
+        False, "--post-comment", help="Post a markdown report comment on a GitHub PR"),
+    pr: int | None = typer.Option(None, "--pr", help="Pull request number for --post-comment"),
+    repo_slug: str | None = typer.Option(
+        None, "--repo-slug", help="GitHub repo as owner/name (for --post-comment/--set-status)"),
+    set_status: bool = typer.Option(
+        False, "--set-status", help="Set a GitHub commit status for this check"),
+    sha: str | None = typer.Option(None, "--sha", help="Commit SHA for --set-status"),
     json_out: bool = typer.Option(False, "--json", help="Emit the full report as JSON"),
     quiet: bool = typer.Option(False, "-q", "--quiet", help="Only print the verdict line"),
 ) -> None:
@@ -55,24 +79,61 @@ def check(
     else:
         kwargs = {"base": base, "head": head, "staged": staged}
 
+    # Policy-as-code: an explicit --policy wins, else .gitport/policy.toml
+    # under the repo root is picked up automatically when it exists.
+    policy_path = policy or find_policy_path(cfg, repo)
+    if policy and not Path(policy).is_file():
+        err_console.print(f"[red]policy file not found:[/red] {policy}")
+        raise typer.Exit(EXIT_ERROR)
     try:
-        report = run_check(cfg, repo=repo, **kwargs)
+        pol = load_policy(policy_path)
+    except PolicyError as e:
+        err_console.print(f"[red]invalid policy file:[/red] {e}")
+        raise typer.Exit(EXIT_ERROR) from e
+
+    try:
+        report = run_check(cfg, repo=repo,
+                           policy=pol if policy_path else None, **kwargs)
     except EngineError as e:
         report = CheckReport(verdict=error_verdict(str(e), fail_open=fo))
     except Exception as e:  # upstream API failure, malformed diff, etc.
         report = CheckReport(verdict=error_verdict(f"{type(e).__name__}: {e}", fail_open=fo))
 
-    if json_out:
-        console.print_json(report.model_dump_json())
-    elif quiet:
-        console.print(report.verdict.status)
-    else:
-        _render(report)
+    # GitHub side-effects are best-effort: failures warn but never gate.
+    if post_comment:
+        if pr is None or not repo_slug:
+            err_console.print(
+                "[yellow]--post-comment needs --pr and --repo-slug; skipping[/yellow]")
+        else:
+            try:
+                post_pr_comment(report, repo_slug, pr)
+                err_console.print(f"[dim]posted gitport comment on PR #{pr}[/dim]")
+            except Exception as e:
+                err_console.print(f"[yellow]warning: could not post PR comment: {e}[/yellow]")
+    if set_status:
+        if not sha or not repo_slug:
+            err_console.print(
+                "[yellow]--set-status needs --sha and --repo-slug; skipping[/yellow]")
+        else:
+            try:
+                set_commit_status(report, repo_slug, sha)
+                err_console.print(f"[dim]set gitport status on {sha[:12]}[/dim]")
+            except Exception as e:
+                err_console.print(f"[yellow]warning: could not set commit status: {e}[/yellow]")
 
-    status = report.verdict.status
-    if status == "FAILED" or (strict and status == "WARNING"):
+    out_fmt = "json" if json_out else fmt.value
+    if out_fmt == "rich":
+        if quiet:
+            console.print(report.verdict.status)
+        else:
+            _render(report)
+    else:
+        print(render(report, out_fmt))
+
+    v = report.verdict
+    if should_fail(v, pol) or (strict and v.status == "WARNING"):
         raise typer.Exit(EXIT_FAILED)
-    if report.verdict.error and not fo:
+    if v.error and not fo:
         raise typer.Exit(EXIT_ERROR)
     raise typer.Exit(EXIT_PASSED)
 

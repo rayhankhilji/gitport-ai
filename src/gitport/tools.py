@@ -19,6 +19,9 @@ from .analysis import (
     lint_sql_migration,
     scan_dependencies,
 )
+from .detectors.confchecks import lint_config
+from .detectors.langs import detect_language, scan_source_patterns
+from .detectors.secrets import scan_text_for_secrets
 from .models import FileDiff, ToolCallRecord
 
 _MAX_FILE_CHARS = 40_000
@@ -47,6 +50,12 @@ class ToolContext:
         if fd is not None:
             return fd.added_source, "diff"
         return None
+
+    def added_source_for(self, path: str) -> str | None:
+        """Only the lines this diff adds — merge-gate findings belong to the
+        change, not to history."""
+        fd = self.file_diffs.get(path)
+        return fd.added_source if fd is not None else None
 
 
 def _fn(name: str, description: str, properties: dict, required: list[str]) -> dict:
@@ -96,6 +105,32 @@ TOOL_SCHEMAS = [
         {"path": {"type": "string", "description": "Repo-relative path to read"}},
         ["path"],
     ),
+    _fn(
+        "scan_secrets",
+        "Scan a changed file's added lines for leaked credentials: API keys, "
+        "private keys, tokens, JWTs, hardcoded passwords, high-entropy "
+        "strings. Matches are masked in the output.",
+        {"path": {"type": "string", "description": "Repo-relative path of a changed file"}},
+        ["path"],
+    ),
+    _fn(
+        "scan_source_patterns",
+        "Detect dangerous language-specific patterns in changed non-Python "
+        "source files (JS/TS, Go, Java, Ruby, PHP): eval, innerHTML sinks, "
+        "command execution, unsafe deserialization, leftover debugger "
+        "statements. Operates on the diff's added lines.",
+        {"path": {"type": "string", "description": "Repo-relative path of a changed file"}},
+        ["path"],
+    ),
+    _fn(
+        "lint_config_file",
+        "Lint changed Dockerfile or GitHub Actions workflow files for "
+        "supply-chain and privilege hazards: unpinned bases/actions, "
+        "curl-piped-to-shell installs, missing USER, script injection via "
+        "github.event interpolation. Operates on the diff's added lines.",
+        {"path": {"type": "string", "description": "Repo-relative path of a changed file"}},
+        ["path"],
+    ),
 ]
 
 
@@ -110,6 +145,12 @@ def execute_tool(ctx: ToolContext, name: str, arguments: dict) -> dict:
             return _t_scan_manifest(ctx, arguments.get("path", ""))
         if name == "read_file":
             return _t_read_file(ctx, arguments.get("path", ""))
+        if name == "scan_secrets":
+            return _t_scan_secrets(ctx, arguments.get("path", ""))
+        if name == "scan_source_patterns":
+            return _t_scan_patterns(ctx, arguments.get("path", ""))
+        if name == "lint_config_file":
+            return _t_lint_config(ctx, arguments.get("path", ""))
         return {"ok": False, "error": f"unknown tool: {name}"}
     except Exception as e:
         return {"ok": False, "error": f"{name} failed: {e}"}
@@ -163,6 +204,36 @@ def _t_read_file(ctx: ToolContext, path: str) -> dict:
     source, provenance = found
     return {"ok": True, "file": path, "source": provenance,
             "content": source[:_MAX_FILE_CHARS]}
+
+
+def _t_scan_secrets(ctx: ToolContext, path: str) -> dict:
+    source = ctx.added_source_for(path)
+    if source is None:
+        return {"ok": False, "error": "file not in diff", "file": path}
+    return scan_text_for_secrets(source, filename=path)
+
+
+def _t_scan_patterns(ctx: ToolContext, path: str) -> dict:
+    lang = detect_language(path)
+    if lang in (None, "python"):  # .py goes through analyze_python_file (AST)
+        return {"ok": False, "error": "unsupported language for this scanner",
+                "file": path}
+    source = ctx.added_source_for(path)
+    if source is None:
+        return {"ok": False, "error": "file not in diff", "file": path}
+    return scan_source_patterns(source, filename=path)
+
+
+def _t_lint_config(ctx: ToolContext, path: str) -> dict:
+    name = Path(path).name
+    is_cfg = name in ("Dockerfile",) or name.startswith("Dockerfile.") \
+        or ".github/workflows/" in path.replace("\\", "/")
+    if not is_cfg:
+        return {"ok": False, "error": "not a Dockerfile/CI workflow file", "file": path}
+    source = ctx.added_source_for(path)
+    if source is None:
+        return {"ok": False, "error": "file not in diff", "file": path}
+    return lint_config(source, filename=path)
 
 
 def summarize_result(result: dict) -> str:

@@ -29,8 +29,9 @@ flowchart TD
    store. Each `gitport check` reranks candidates with `cohere.rerank` and
    injects the top-3 rules into context.
 2. **Agent loop** — `cohere.chat` with tool definitions. The model calls real
-   tools (`analyze_python_file`, `lint_migration_file`, `scan_manifest`,
-   `read_file`) against the diff and gathers evidence instead of guessing.
+   tools — `analyze_python_file`, `lint_migration_file`, `scan_manifest`,
+   `scan_secrets`, `scan_source_patterns`, `lint_config_file`, `read_file` —
+   against the diff and gathers evidence instead of guessing.
 3. **Gate** — a final `cohere.chat` with `response_format={"type":
    "json_object", "schema": …}` returns the verdict: status, breaking-change
    flag, and per-file flaws with line numbers and fix suggestions.
@@ -77,7 +78,9 @@ gitport check --staged
 gitport check --diff-file pr.patch
 git diff main... | gitport check --diff-file -
 
-# machine-readable
+# machine-readable: json, sarif (GitHub code scanning), junit (CI reports),
+# markdown (PR comments)
+gitport check --base main --format sarif
 gitport check --base main --json
 ```
 
@@ -85,10 +88,42 @@ gitport check --base main --json
 |---|---|
 | `0` | PASSED (or WARNING) |
 | `1` | FAILED — do not merge |
-| `3` | engine error with `--fail-open` |
+| `3` | engine error while failing closed, or a bad `--policy` file |
 
 Useful flags: `--strict` (WARNING also fails), `--fail-open` (infra errors
-warn instead of blocking — the default is **fail closed**).
+warn instead of blocking — the default is **fail closed**), `--policy PATH`
+(force a policy file; `.gitport/policy.toml` is picked up automatically).
+
+### Policy as code
+
+Drop `.gitport/policy.toml` in the repo — same enforcement across CLI, API
+and MCP. Suppress known risks, set severity floors, escalate hot zones:
+
+```toml
+severity_floor = "low"
+fail_on = ["FAILED"]
+
+[[suppress]]
+glob = "vendor/**"
+reason = "vendored code is upstream's problem"
+
+[[escalate]]
+glob = "migrations/**"
+```
+
+Full schema in [`docs/deployment.md`](docs/deployment.md), sample in
+[`examples/policy.toml`](examples/policy.toml).
+
+### GitHub integration
+
+```bash
+gitport check --base origin/main --head HEAD \
+  --post-comment --pr 42 --repo-slug you/repo \
+  --set-status --sha $GIT_SHA --repo-slug you/repo
+```
+
+Posts an upserted verdict comment (`<!-- gitport -->` marker) and a commit
+status check. Uses `GITHUB_TOKEN`.
 
 ### Git hook
 
@@ -116,13 +151,13 @@ gitport-mcp          # stdio transport
 ```
 
 Tools: `gitport_check` (git range), `gitport_check_diff` (raw patch),
-`gitport_index_rules`, plus keyless `gitport_lint_migration` and
-`gitport_analyze_python` for quick one-off checks.
+`gitport_index_rules`, plus keyless `gitport_lint_migration`,
+`gitport_analyze_python` and `gitport_scan_secrets` for quick one-off checks.
 
 ## REST API
 
 ```bash
-gitport serve --port 8400
+gitport serve --port 8400        # or: docker compose up
 ```
 
 ```bash
@@ -131,8 +166,11 @@ curl -X POST localhost:8400/v1/check \
   -d '{"diff": "'"$(git diff main...)"'"}'
 ```
 
-`GET /healthz`, `GET /v1/schema` (the verdict contract), `POST /v1/index`.
-Set `GITPORT_API_TOKEN` to require `Authorization: Bearer` on `/v1/*`.
+Endpoints: `GET /healthz` (open) · `POST /v1/check` · `POST /v1/index` ·
+`GET /v1/schema` (verdict contract) · `GET /v1/checks` + `GET /v1/checks/{id}`
+(persisted audit trail) · `GET /v1/stats`. All `/v1/*` behind bearer auth when
+`GITPORT_API_TOKEN` is set. Per-IP rate limiting, body-size limits, request
+IDs, and JSON logging are built in — see [`docs/deployment.md`](docs/deployment.md).
 
 ## Configuration
 
@@ -147,7 +185,20 @@ Set `GITPORT_API_TOKEN` to require `Authorization: Bearer` on `/v1/*`.
 | `GITPORT_TOP_K_RULES` | `3` | rules injected per check |
 | `GITPORT_AGENT_MAX_STEPS` | `8` | tool-loop budget |
 | `GITPORT_API_TOKEN` | unset | bearer auth for the API |
+| `GITPORT_POLICY_PATH` | `.gitport/policy.toml` | policy file location |
+| `GITPORT_REPORTS_DB` | `.gitport/reports.sqlite3` | check audit store |
+| `GITPORT_RATE_LIMIT_RPM` | `120` | API per-client rate limit |
 | `GITPORT_FAIL_OPEN` | `0` | `1` downgrades engine errors to warnings |
+
+(Full table in [`.env.example`](.env.example).)
+
+## Docker
+
+```bash
+docker compose up --build     # serves :8400, rules mounted from ./docs/rules
+```
+
+Multi-stage image, non-root user, `/data` volume for index + reports.
 
 ## Why a gatekeeper, not a reviewer
 
@@ -161,13 +212,17 @@ is missing, gitport fails closed — an unchecked merge is the dangerous state.
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/pytest          # 45 tests, fully mocked — no API key needed
+.venv/bin/pytest          # 120+ tests, fully mocked — no API key needed
 .venv/bin/ruff check src tests
 ```
 
 Layout: `src/gitport/` — `diff.py` (parsing), `rules.py` + `store.py`
-(embed→sqlite→rerank), `analysis.py` + `tools.py` (the agent's tools),
-`agent.py` (tool loop), `gate.py` (structured verdict), `engine.py`
-(orchestration), `cli.py` / `mcp_server.py` / `api.py` (the three surfaces).
+(embed→sqlite→rerank), `analysis.py` + `detectors/` + `tools.py` (the agent's
+tools), `agent.py` (tool loop), `gate.py` (structured verdict), `engine.py`
+(orchestration), `policy.py` + `formatters.py` + `github.py` (gate outputs),
+`reports.py` + `server.py` (persistence + middleware), `cli.py` /
+`mcp_server.py` / `api.py` (the three surfaces). Deep-dive:
+[`docs/architecture.md`](docs/architecture.md) ·
+[`docs/detector-reference.md`](docs/detector-reference.md).
 
 MIT licensed.

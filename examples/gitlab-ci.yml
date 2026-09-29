@@ -1,0 +1,19 @@
+# .gitlab-ci.yml — gate every merge request before merge.
+#
+# Prereqs: COHERE_API_KEY set as a masked CI/CD variable
+# (Settings → CI/CD → Variables). Rules corpus lives in docs/rules.
+
+gitport:
+  image: python:3.12-slim
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GIT_DEPTH: "0"                    # merge-base diff needs full history
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq git
+    - pip install gitport
+    # or from source: pip install "git+https://github.com/rayhankhilji/gitport-ai"
+    - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+  script:
+    - gitport index --rules-dir docs/rules
+    - gitport check --base "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" --head HEAD --strict

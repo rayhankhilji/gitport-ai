@@ -7,7 +7,7 @@ name = "gitport"
 version = "0.1.0"
 description = "AI-native pre-merge gatekeeper: catches breaking changes, migration hazards and security flaws in git diffs before they hit production."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "gitport contributors" }]
 keywords = ["cohere", "code-review", "ci", "git-hooks", "mcp", "ai-agent"]
@@ -49,7 +49,7 @@ gitport-mcp = "gitport.mcp_server:main"
 packages = ["src/gitport"]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 110
 
 [tool.ruff.lint]

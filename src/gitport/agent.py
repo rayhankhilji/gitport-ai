@@ -28,6 +28,9 @@ run real checks — use them instead of guessing:
   catch operations that lock or destroy production tables.
 - For changed dependency manifests: call scan_manifest to check for known
   CVEs.
+- For every changed file: call scan_secrets to catch leaked credentials.
+- For changed JS/TS/Go/Java/Ruby/PHP files: call scan_source_patterns.
+- For changed Dockerfiles or CI workflow files: call lint_config_file.
 - Call read_file when you need surrounding context the diff doesn't show.
 
 Also weigh the diff against the internal engineering rules provided. Only call

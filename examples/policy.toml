@@ -1,0 +1,27 @@
+# gitport policy — drop at .gitport/policy.toml or pass --policy PATH.
+# Policy as code: who can waive what, and how strict the gate is.
+
+# Flaws below this severity are dropped from the verdict entirely.
+severity_floor = "low"
+
+# Verdict statuses that block a merge (exit 1 / failed commit status).
+fail_on = ["FAILED"]
+
+# Known-risk acceptances — findings matching glob (+ optional substring)
+# are suppressed and recorded in the verdict summary for audit.
+[[suppress]]
+glob = "vendor/**"
+reason = "vendored code is upstream's problem"
+
+[[suppress]]
+glob = "**/test_*.py"
+match = "subprocess"
+reason = "shell helpers in test fixtures are reviewed separately"
+
+# Escalation zones — flaws in matching paths are bumped to high severity,
+# which generally means they fail the gate.
+[[escalate]]
+glob = "migrations/**"
+
+[[escalate]]
+glob = "**/billing/**"

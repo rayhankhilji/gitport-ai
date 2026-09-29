@@ -15,6 +15,7 @@ from .config import Settings
 from .diff import GitError, diff_digest, git_diff, parse_unified_diff
 from .gate import evaluate
 from .models import CheckReport, RetrievedRule, Verdict
+from .policy import Policy, apply_policy
 from .rules import retrieve_rules
 
 
@@ -38,11 +39,14 @@ def run_check(cfg: Settings, client=None, *,
               repo: str | Path = ".",
               base: str | None = None,
               head: str | None = None,
-              staged: bool = False) -> CheckReport:
+              staged: bool = False,
+              policy: Policy | None = None) -> CheckReport:
     """Run the full gatekeeper pipeline and return a CheckReport.
 
     Exactly one diff source is used: ``diff_text`` if given, otherwise a git
     diff over ``base...head`` (or staged changes when ``staged=True``).
+    When ``policy`` is provided, it is applied to the verdict before return —
+    the same enforcement for CLI, API and MCP callers.
     """
     t0 = time.monotonic()
 
@@ -83,8 +87,11 @@ def run_check(cfg: Settings, client=None, *,
     agent = run_agent(client, cfg, files, rules,
                       repo_root=repo if Path(repo).is_dir() else None)
 
-    # Step 3: structured verdict.
+    # Step 3: structured verdict, then policy enforcement (suppressions,
+    # severity floors, escalation zones) unless the gate itself errored.
     verdict = evaluate(client, cfg, files, rules, agent)
+    if policy is not None and verdict.error is None:
+        verdict = apply_policy(verdict, policy)
 
     return CheckReport(
         verdict=verdict,

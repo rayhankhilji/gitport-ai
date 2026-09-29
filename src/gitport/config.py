@@ -35,6 +35,17 @@ class Settings(BaseSettings):
     api_token: str = ""
     fail_open: bool = False
 
+    # policy + reporting
+    policy_path: str = ".gitport/policy.toml"
+    reports_db: str = ".gitport/reports.sqlite3"
+    store_reports: bool = True
+
+    # API server hardening
+    rate_limit_rpm: int = 120          # requests per minute per client, 0 disables
+    max_request_bytes: int = 5_000_000
+    cors_origins: str = ""             # comma-separated, empty = same-origin only
+    log_format: str = "text"           # text | json
+
 
 def get_settings() -> Settings:
     return Settings()
