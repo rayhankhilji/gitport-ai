@@ -57,3 +57,22 @@ def test_version():
     res = runner.invoke(app, ["version"])
     assert res.exit_code == 0
     assert "gitport" in res.output
+
+
+def test_install_hook_bare_repo(tmp_path):
+    import subprocess
+    bare = tmp_path / "srv.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True)
+    res = runner.invoke(app, ["install-hook", "pre-receive", "--repo", str(bare)])
+    assert res.exit_code == 0
+    hook = bare / "hooks" / "pre-receive"
+    assert hook.exists() and hook.stat().st_mode & 0o111
+    assert "gitport check" in hook.read_text()
+
+
+def test_install_hook_regular_repo(tmp_path):
+    import subprocess
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    res = runner.invoke(app, ["install-hook", "--repo", str(tmp_path)])
+    assert res.exit_code == 0
+    assert (tmp_path / ".git" / "hooks" / "pre-push").exists()

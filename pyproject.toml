@@ -31,6 +31,10 @@ dependencies = [
     "mcp>=1.9.0",
 ]
 
+[project.urls]
+Repository = "https://github.com/rayhankhilji/gitport-ai"
+Issues = "https://github.com/rayhankhilji/gitport-ai/issues"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",

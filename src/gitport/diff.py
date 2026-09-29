@@ -19,13 +19,21 @@ class GitError(RuntimeError):
     pass
 
 
+# Well-known hash of git's empty tree — used as the base for a diff when a
+# push creates a brand-new ref (no remote ancestor exists).
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+
 def git_diff(repo: str | Path, base: str | None = None, head: str | None = None,
              staged: bool = False) -> str:
     """Return the unified diff for a range, refs, or staged changes."""
     if staged:
         args = ["diff", "--staged", "--unified=3"]
     elif base and head:
-        args = ["diff", "--unified=3", f"{base}...{head}"]
+        # base...head diffs merge-base→head; the empty tree has no merge base,
+        # so new-ref diffs must compare the two trees directly.
+        args = ["diff", "--unified=3", base, head] if base == EMPTY_TREE \
+            else ["diff", "--unified=3", f"{base}...{head}"]
     elif base:
         args = ["diff", "--unified=3", base]
     else:

@@ -118,6 +118,8 @@ def install_hook(
 
     hooks_dir = repo / ".git" / "hooks"
     if not hooks_dir.is_dir():
+        hooks_dir = repo / "hooks"  # bare repo layout
+    if not hooks_dir.is_dir():
         err_console.print(f"[red]not a git repo:[/red] {repo}")
         raise typer.Exit(EXIT_ERROR)
 
@@ -182,30 +184,40 @@ def _render(report: CheckReport) -> None:
 
 
 _HOOK_SCRIPTS = {
+    # EMPTY is the well-known empty-tree object hash — used as the base when a
+    # push creates a ref, so the whole branch's diff gets checked.
     "pre-push": """#!/bin/sh
 # gitport pre-push gate: check each ref range being pushed.
+# Requires: gitport on PATH and COHERE_API_KEY exported.
 remote="$1"
+EMPTY=4b825dc642cb6eb9a060e54bf8d69288fbee4904
 status=0
 while read local_ref local_sha remote_ref remote_sha; do
-    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
-        range="$local_sha"          # new branch: diff against itself's commits
-    else
-        range="$remote_sha...$local_sha"
+    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+        continue                        # branch deletion — nothing to gate
     fi
-    gitport check --base "$range" || status=1
+    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+        gitport check --base "$EMPTY" --head "$local_sha" || status=1
+    else
+        gitport check --base "$remote_sha" --head "$local_sha" || status=1
+    fi
 done
 exit $status
 """,
     "pre-receive": """#!/bin/sh
 # gitport pre-receive gate (server-side). Install in the bare repo's hooks/.
+# Requires: gitport on PATH and COHERE_API_KEY exported in the hook env.
+EMPTY=4b825dc642cb6eb9a060e54bf8d69288fbee4904
 status=0
 while read old_sha new_sha ref; do
-    if [ "$old_sha" = "0000000000000000000000000000000000000000" ]; then
-        range="$new_sha"
-    else
-        range="$old_sha...$new_sha"
+    if [ "$new_sha" = "0000000000000000000000000000000000000000" ]; then
+        continue                        # ref deletion — nothing to gate
     fi
-    gitport check --base "$range" || status=1
+    if [ "$old_sha" = "0000000000000000000000000000000000000000" ]; then
+        gitport check --base "$EMPTY" --head "$new_sha" || status=1
+    else
+        gitport check --base "$old_sha" --head "$new_sha" || status=1
+    fi
 done
 exit $status
 """,
